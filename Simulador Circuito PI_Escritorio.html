@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador · Circuito π Nominal</title>
+<style>
+  :root{
+    --bg:#EDF1F5; --panel:#FFFFFF; --panel2:#F5F7FA; --border:#D7DEE6;
+    --text:#17222E; --muted:#54667A; --faint:#8595A6;
+    --wire:#37485A; --node:#17222E;
+    --volt:#0B7BB8; --curr:#A96A00; --loss:#C03A3A; --reac:#177A45;
+    --shadow:0 1px 3px rgba(23,34,46,.08);
+    --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,Menlo,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --math:"STIX Two Math","Cambria Math","Latin Modern Math","Times New Roman",Georgia,serif;
+  }
+  body[data-theme="dark"]{
+    --bg:#0D141D; --panel:#141E2B; --panel2:#101825; --border:#24313F;
+    --text:#E9EFF5; --muted:#98A8B9; --faint:#5C6B7C;
+    --wire:#93A7BC; --node:#C7D4E0;
+    --volt:#56C8F2; --curr:#F2B54B; --loss:#F07A7A; --reac:#74D695;
+    --shadow:none;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.45;
+       padding:26px clamp(14px,4vw,48px) 60px}
+  @media(prefers-reduced-motion:no-preference){
+    body,.panel,.in,button{transition:background-color .2s,border-color .2s,color .2s}
+  }
+
+  /* ---------- Notación matemática (estilo LaTeX) ---------- */
+  .m{font-family:var(--math);font-style:italic;font-size:1.16em;line-height:1}
+  .m sub{font-style:normal;font-size:.64em;vertical-align:-.28em}
+  .m .up{font-style:normal}
+  svg .mv{font-family:var(--math);font-style:italic}
+  svg .ms{font-family:var(--math);font-style:normal;font-size:9.5px}
+
+  .credit{text-align:center;color:var(--faint);padding:0 0 14px;margin:-2px 0 18px;
+          border-bottom:1px solid var(--border)}
+  .credit .cName{font-size:12px;letter-spacing:.05em;color:var(--muted)}
+  .credit .cAI{font-size:11px;letter-spacing:.06em;margin-top:2px}
+  header.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+  .eyebrow{font-size:11px;letter-spacing:.22em;color:var(--muted);text-transform:uppercase;margin:0 0 6px}
+  h1{font-size:clamp(22px,3.4vw,34px);margin:0;font-weight:700;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:6px 0 0;font-size:14px}
+  .sub .pu{color:var(--volt);font-weight:600} .sub .re{color:var(--curr);font-weight:600}
+  #theme{background:var(--panel);border:1px solid var(--border);color:var(--muted);border-radius:8px;
+         padding:8px 14px;font-size:12.5px;cursor:pointer;box-shadow:var(--shadow)}
+  #theme:hover{color:var(--text)}
+
+  h2.zone{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);
+          font-weight:600;margin:28px 0 12px}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+
+  /* ---------- Zona 1 · Entradas ---------- */
+  #inGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:14px}
+  .icard{padding:16px 18px 14px}
+  .icard h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);
+            font-weight:600;margin:0 0 12px}
+  .row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-bottom:10px}
+  label.fld{display:block;font-size:12px;color:var(--muted)}
+  label.fld b{display:flex;align-items:baseline;gap:7px;font-weight:500;margin-bottom:5px;color:var(--text);font-size:12.5px}
+  .in{display:flex;align-items:stretch;border:1px solid var(--border);border-radius:8px;
+      background:var(--panel2);overflow:hidden}
+  .in input,.in select{flex:1;min-width:0;border:0;background:transparent;color:var(--text);
+      font-family:var(--mono);font-size:13.5px;padding:8px 10px;outline:none}
+  .in select{appearance:none;-webkit-appearance:none;cursor:pointer;font-family:var(--sans);font-size:13px}
+  .in .u{display:flex;align-items:center;padding:0 10px;font-family:var(--mono);font-size:12px;
+      color:var(--faint);background:rgba(127,127,127,.05);border-left:1px solid var(--border);white-space:nowrap}
+  .in:focus-within{border-color:var(--volt);box-shadow:0 0 0 2px rgba(30,140,200,.18)}
+  .derived{font-size:12px;color:var(--faint);margin:4px 0 0;line-height:1.9}
+  .derived .num{font-family:var(--mono);color:var(--muted)}
+  #inFoot{display:flex;align-items:center;gap:14px;margin-top:12px;flex-wrap:wrap}
+  .warn{display:none;font-size:12.5px;color:var(--loss);
+        border:1px solid rgba(192,58,58,.4);border-radius:8px;padding:8px 12px}
+  .warn.show{display:block}
+  .note{display:none;font-size:12.5px;color:var(--reac);
+        border:1px solid rgba(23,122,69,.4);border-radius:8px;padding:8px 12px}
+  .note.show{display:block}
+  button#reset{background:var(--panel);border:1px solid var(--border);
+        color:var(--muted);border-radius:8px;padding:9px 16px;font-size:12.5px;cursor:pointer;font-family:var(--sans)}
+  button#reset:hover{color:var(--text);border-color:var(--faint)}
+  button:focus-visible,.in input:focus-visible,.in select:focus-visible{outline:2px solid var(--volt);outline-offset:1px}
+
+  /* ---------- Zona 2 · Diagrama ---------- */
+  #diagWrap{padding:10px 12px 4px;overflow-x:auto}
+  svg{display:block;width:100%;height:auto;min-width:740px;max-width:1040px;margin:0 auto}
+  svg text{font-family:var(--mono)}
+  .wire{stroke:var(--wire);stroke-width:2;fill:none}
+  .comp{stroke:var(--wire);stroke-width:2;fill:var(--panel2)}
+  .capline{stroke:var(--wire);stroke-width:3}
+  .gnd{stroke:var(--wire);stroke-width:2}
+  .tag{fill:var(--muted);font-size:13px}
+  .tagB{fill:var(--text);font-size:14px;font-weight:600}
+  .vV{fill:var(--volt);font-size:13.5px}
+  .vI{fill:var(--curr);font-size:13.5px}
+  .vP{fill:var(--loss);font-size:13.5px}
+  .vQ{fill:var(--reac);font-size:13.5px}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;padding:4px 6px 10px;font-size:11.5px;color:var(--muted)}
+  .legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
+  .lg-v::before{background:var(--volt)} .lg-i::before{background:var(--curr)}
+  .lg-p::before{background:var(--loss)} .lg-q::before{background:var(--reac)}
+
+  /* ---------- Zona 3 · Resultados ---------- */
+  #rGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(430px,100%),1fr));gap:14px;align-items:start}
+  .rcard{padding:14px 16px 6px}
+  .rcard h3{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.18em;
+            text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 2px}
+  .rcard h3::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--faint)}
+  .gV h3::before{background:var(--volt)} .gI h3::before{background:var(--curr)}
+  .gP h3::before{background:var(--loss)} .gQ h3::before{background:var(--reac)}
+  .mini{display:grid;grid-template-columns:minmax(118px,.85fr) 1fr 1.15fr;gap:0;
+        padding:0;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+        color:var(--faint);font-weight:600;border-bottom:1px solid var(--border)}
+  .mini span{padding:8px 8px 6px}
+  .mini span:nth-child(2),.mini span:nth-child(3){text-align:center;border-left:1px solid var(--border)}
+  .rrow{display:grid;grid-template-columns:minmax(118px,.85fr) 1fr 1.15fr;gap:0;align-items:stretch;
+        padding:0;border-bottom:1px solid var(--border)}
+  .rcard .rrow:last-child{border-bottom:0}
+  .rrow:hover{background:var(--panel2)}
+  .rname{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 8px}
+  .rname .desc{font-size:11.5px;color:var(--muted)}
+  .rval{display:flex;align-items:center;justify-content:center;text-align:center;
+        font-family:var(--mono);font-size:13.5px;white-space:nowrap;padding:11px 8px;
+        border-left:1px solid var(--border)}
+  .cV{color:var(--volt)} .cI{color:var(--curr)} .cP{color:var(--loss)} .cQ{color:var(--reac)}
+  .span2{grid-column:2 / 4}
+  .abcd .rrow{grid-template-columns:minmax(118px,.7fr) 2fr}
+  footer{margin-top:28px;font-size:11.5px;color:var(--faint)}
+</style>
+</head>
+<body data-theme="light">
+
+<p class="credit"><span class="cName">Hecho por Jesús Peña, UNEFA Lara</span><br><span class="cAI">Con apoyo de Claude (Anthropic) para el diseño de la interfaz</span></p>
+
+<header class="top">
+  <div>
+    <p class="eyebrow">Línea de transmisión · Cuadripolo ABCD</p>
+    <h1>Circuito π nominal</h1>
+    <p class="sub">Simulador — resultados <span class="pu">por unidad</span> y <span class="re">valores reales</span> sobre la misma plantilla</p>
+  </div>
+  <button id="theme" type="button">Modo oscuro</button>
+</header>
+
+<!-- ==================== ZONA 1 · DATOS DE ENTRADA ==================== -->
+<h2 class="zone">1 · Datos de entrada</h2>
+<div id="inGrid">
+  <section class="panel icard" aria-label="Bases del sistema para el análisis en por unidad">
+    <h3>Bases del Sistema para el análisis en por unidad</h3>
+    <div class="row">
+      <label class="fld"><b><span class="m">V<sub>B</sub></span> Tensión base</b>
+        <span class="in"><input id="VB" type="number" step="any" value="442"><span class="u">kV L-L</span></span>
+      </label>
+      <label class="fld"><b><span class="m">S<sub>B</sub></span> Potencia base</b>
+        <span class="in"><input id="SB" type="number" step="any" value="244"><span class="u">MVA</span></span>
+      </label>
+    </div>
+    <p class="derived" id="dBases"></p>
+  </section>
+
+  <section class="panel icard" aria-label="Extremo receptor y carga">
+    <h3>Extremo receptor · carga</h3>
+    <div class="row">
+      <label class="fld"><b><span class="m">V<sub>R</sub></span> Tensión</b>
+        <span class="in"><input id="VR" type="number" step="any" value="442"><span class="u">kV L-L</span></span>
+      </label>
+      <label class="fld"><b><span class="m">|S|</span> Carga</b>
+        <span class="in"><input id="Sc" type="number" step="any" value="244"><span class="u">MVA</span></span>
+      </label>
+    </div>
+    <div class="row">
+      <label class="fld"><b><span class="m">fp</span> Factor de potencia</b>
+        <span class="in"><input id="fp" type="number" step="any" min="0" max="1" value="0.8"></span>
+      </label>
+      <label class="fld"><b>Tipo de carga</b>
+        <span class="in"><select id="tipo">
+          <option value="ind" selected>Inductivo (atraso)</option>
+          <option value="cap">Capacitivo (adelanto)</option>
+        </select></span>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel icard" aria-label="Parámetros de la línea">
+    <h3>Parámetros de la línea</h3>
+    <div class="row">
+      <label class="fld"><b>Modo de entrada</b>
+        <span class="in"><select id="modo">
+          <option value="total" selected>Valores totales</option>
+          <option value="km">Por longitud · km</option>
+          <option value="mi">Por longitud · millas</option>
+        </select></span>
+      </label>
+      <label class="fld" id="wrapLen" style="visibility:hidden"><b><span class="m">ℓ</span> Longitud</b>
+        <span class="in"><input id="Len" type="number" step="any" value="100"><span class="u" id="uLen">km</span></span>
+      </label>
+    </div>
+    <div class="row">
+      <label class="fld"><b><span class="m">R</span> Resistencia</b>
+        <span class="in"><input id="R" type="number" step="any" value="4.92"><span class="u" id="uR">Ω</span></span>
+      </label>
+      <label class="fld"><b><span class="m">X</span> Reactancia</b>
+        <span class="in"><input id="X" type="number" step="any" value="27.88"><span class="u" id="uX">Ω</span></span>
+      </label>
+    </div>
+    <div class="row">
+      <label class="fld"><b>Shunt como</b>
+        <span class="in"><select id="shTipo">
+          <option value="B" selected>Susceptancia B</option>
+          <option value="Xc">React. capacitiva X_C</option>
+        </select></span>
+      </label>
+      <label class="fld"><b id="lblSh"><span class="m">B</span> Susceptancia total</b>
+        <span class="in"><input id="Sh" type="number" step="any" value="390.32"><span class="u" id="uSh">µS</span></span>
+      </label>
+    </div>
+    <p class="derived" id="dLinea"></p>
+  </section>
+</div>
+<div id="inFoot">
+  <button id="reset" type="button">Restablecer caso de ejemplo</button>
+  <div class="warn" id="warn"></div>
+  <div class="note" id="note"></div>
+</div>
+
+<!-- ==================== ZONA 2 · ESQUEMÁTICO ==================== -->
+<h2 class="zone">2 · Esquemático</h2>
+<section class="panel" id="diagWrap" aria-label="Diagrama unifilar del circuito π nominal">
+<svg viewBox="20 62 1085 302" xmlns="http://www.w3.org/2000/svg" role="img">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" style="fill:var(--curr)"/>
+    </marker>
+  </defs>
+
+  <!-- ===== Columna EMISOR: título, V_S y fuente alineados en x=120 ===== -->
+  <text x="120" y="88" text-anchor="middle" class="tagB">EMISOR</text>
+  <text x="120" y="118" text-anchor="middle" class="tagB"><tspan class="mv" font-size="16">V</tspan><tspan class="ms" dy="3">S</tspan></text>
+  <text id="dVS1" x="120" y="140" text-anchor="middle" class="vV"></text>
+  <text id="dVS2" x="120" y="162" text-anchor="middle" class="vV"></text>
+  <circle cx="120" cy="210" r="28" class="comp"/>
+  <path d="M106,210 q7,-13 14,0 q7,13 14,0" class="wire"/>
+
+  <!-- Cable fuente → barra S, flecha I_S centrada con su etiqueta (x=246) -->
+  <line x1="148" y1="210" x2="345" y2="210" class="wire"/>
+  <line x1="222" y1="210" x2="269" y2="210" class="wire" marker-end="url(#arr)"/>
+  <text x="246" y="240" text-anchor="middle" class="vI"><tspan class="mv" font-size="14.5">I</tspan><tspan class="ms" dy="3">S</tspan></text>
+  <text id="dIS2" x="246" y="259" text-anchor="middle" class="vI"></text>
+
+  <!-- Barra S -->
+  <circle cx="345" cy="210" r="5" fill="var(--node)"/>
+
+  <!-- Impedancia serie Z (centro x=535) -->
+  <line x1="345" y1="210" x2="385" y2="210" class="wire"/>
+  <rect x="385" y="180" width="300" height="60" rx="6" class="comp"/>
+  <text x="535" y="204" text-anchor="middle" class="tag"><tspan class="mv" font-size="14">Z</tspan><tspan> = </tspan><tspan class="mv" font-size="14">R</tspan><tspan> + j</tspan><tspan class="mv" font-size="14">X</tspan></text>
+  <text id="dZ2" x="535" y="226" text-anchor="middle" class="tagB" font-size="13.5"></text>
+  <!-- I_Z: flecha, símbolo y valor, los tres centrados en x=535 -->
+  <line x1="511" y1="116" x2="558" y2="116" class="wire" marker-end="url(#arr)"/>
+  <text x="535" y="140" text-anchor="middle" class="vI"><tspan class="mv" font-size="14.5">I</tspan><tspan class="ms" dy="3">Z</tspan></text>
+  <text id="dI22" x="535" y="162" text-anchor="middle" class="vI"></text>
+  <!-- Pérdidas bajo Z, mismo eje -->
+  <text x="535" y="268" text-anchor="middle" class="vP"><tspan class="mv" font-size="14">P</tspan><tspan class="ms" dy="3">L</tspan><tspan dy="-3" id="dPL"></tspan></text>
+  <!-- Índices RV y η centrados bajo la impedancia serie -->
+  <text x="535" y="340" text-anchor="middle" class="tag" font-size="14"><tspan class="mv" font-size="15">RV</tspan><tspan id="dRegV"></tspan><tspan class="mv" font-size="15">η</tspan><tspan id="dEfV"></tspan></text>
+
+  <!-- Cable Z → barra R -->
+  <line x1="685" y1="210" x2="725" y2="210" class="wire"/>
+
+  <!-- Barra R -->
+  <circle cx="725" cy="210" r="5" fill="var(--node)"/>
+
+  <!-- Cable barra R → carga, flecha I_R centrada con su etiqueta (x=835) -->
+  <line x1="725" y1="210" x2="945" y2="210" class="wire"/>
+  <line x1="811" y1="210" x2="858" y2="210" class="wire" marker-end="url(#arr)"/>
+  <text x="835" y="240" text-anchor="middle" class="vI"><tspan class="mv" font-size="14.5">I</tspan><tspan class="ms" dy="3">R</tspan></text>
+  <text id="dIR2" x="835" y="259" text-anchor="middle" class="vI"></text>
+
+  <!-- ===== Columna RECEPTOR: título, V_R y carga alineados en x=1020 ===== -->
+  <text x="1020" y="88" text-anchor="middle" class="tagB">RECEPTOR</text>
+  <text x="1020" y="118" text-anchor="middle" class="tagB"><tspan class="mv" font-size="16">V</tspan><tspan class="ms" dy="3">R</tspan></text>
+  <text id="dVR1" x="1020" y="140" text-anchor="middle" class="vV"></text>
+  <text id="dVR2" x="1020" y="162" text-anchor="middle" class="vV"></text>
+  <rect x="945" y="180" width="150" height="60" rx="6" class="comp"/>
+  <text x="1020" y="201" text-anchor="middle" class="tagB">CARGA</text>
+  <text id="dLoad1" x="1020" y="219" text-anchor="middle" class="tag"></text>
+  <text id="dLoad2" x="1020" y="234" text-anchor="middle" class="tag"></text>
+
+  <!-- Shunt en barra S · Y/2 a la izquierda, Q_C a la derecha -->
+  <line x1="345" y1="210" x2="345" y2="300" class="wire"/>
+  <line x1="326" y1="300" x2="364" y2="300" class="capline"/>
+  <line x1="326" y1="311" x2="364" y2="311" class="capline"/>
+  <line x1="345" y1="311" x2="345" y2="338" class="wire"/>
+  <line x1="329" y1="338" x2="361" y2="338" class="gnd"/>
+  <line x1="335" y1="345" x2="355" y2="345" class="gnd"/>
+  <line x1="340" y1="352" x2="350" y2="352" class="gnd"/>
+  <text x="318" y="310" text-anchor="end" class="tag"><tspan class="mv" font-size="14">Y</tspan><tspan>/2</tspan><tspan dx="7" id="dB2s" class="tagB" font-size="13"></tspan></text>
+  <text x="372" y="310" text-anchor="start" class="vQ"><tspan class="mv" font-size="14">Q</tspan><tspan class="ms" dy="3">C</tspan><tspan dy="-3" id="dQCs"></tspan></text>
+
+  <!-- Shunt en barra R · Y/2 a la izquierda, Q_C a la derecha -->
+  <line x1="725" y1="210" x2="725" y2="300" class="wire"/>
+  <line x1="706" y1="300" x2="744" y2="300" class="capline"/>
+  <line x1="706" y1="311" x2="744" y2="311" class="capline"/>
+  <line x1="725" y1="311" x2="725" y2="338" class="wire"/>
+  <line x1="709" y1="338" x2="741" y2="338" class="gnd"/>
+  <line x1="715" y1="345" x2="735" y2="345" class="gnd"/>
+  <line x1="720" y1="352" x2="730" y2="352" class="gnd"/>
+  <text x="698" y="310" text-anchor="end" class="tag"><tspan class="mv" font-size="14">Y</tspan><tspan>/2</tspan><tspan dx="7" id="dB2r" class="tagB" font-size="13"></tspan></text>
+  <text x="752" y="310" text-anchor="start" class="vQ"><tspan class="mv" font-size="14">Q</tspan><tspan class="ms" dy="3">C</tspan><tspan dy="-3" id="dQCr"></tspan></text>
+</svg>
+<div class="legend">
+  <span class="lg-v">Tensión</span><span class="lg-i">Corriente</span>
+  <span class="lg-p">Pérdidas</span><span class="lg-q">Reactivos del condensador</span>
+</div>
+</section>
+
+<!-- ==================== ZONA 3 · RESULTADOS ==================== -->
+<h2 class="zone">3 · Resultados</h2>
+<div id="rGrid">
+
+  <section class="panel rcard gV" aria-label="Tensiones">
+    <h3>Tensiones</h3>
+    <div class="mini"><span></span><span>Por unidad</span><span>Valor real</span></div>
+    <div class="rrow">
+      <div class="rname"><span class="m cV">V<sub>S</sub></span><span class="desc">Emisor · fuente</span></div>
+      <div class="rval cV" id="rVSp"></div><div class="rval cV" id="rVSr"></div>
+    </div>
+    <div class="rrow">
+      <div class="rname"><span class="m cV">V<sub>R</sub></span><span class="desc">Receptor · referencia</span></div>
+      <div class="rval cV" id="rVRp"></div><div class="rval cV" id="rVRr"></div>
+    </div>
+    <div class="rrow">
+      <div class="rname"><span class="m cV"><span class="up">Δ</span>V<sub>Z</sub></span><span class="desc">Caída en la imped. serie</span></div>
+      <div class="rval cV" id="rDVp"></div><div class="rval cV" id="rDVr"></div>
+    </div>
+  </section>
+
+  <section class="panel rcard gI" aria-label="Corrientes">
+    <h3>Corrientes</h3>
+    <div class="mini"><span></span><span>Por unidad</span><span>Valor real</span></div>
+    <div class="rrow">
+      <div class="rname"><span class="m cI">I<sub>S</sub></span><span class="desc">Emisor</span></div>
+      <div class="rval cI" id="rISp"></div><div class="rval cI" id="rISr"></div>
+    </div>
+    <div class="rrow">
+      <div class="rname"><span class="m cI">I<sub>Z</sub></span><span class="desc">Por la imped. serie</span></div>
+      <div class="rval cI" id="rI2p"></div><div class="rval cI" id="rI2r"></div>
+    </div>
+    <div class="rrow">
+      <div class="rname"><span class="m cI">I<sub>R</sub></span><span class="desc">Receptor</span></div>
+      <div class="rval cI" id="rIRp"></div><div class="rval cI" id="rIRr"></div>
+    </div>
+  </section>
+
+  <section class="panel rcard gP" aria-label="Potencias">
+    <h3>Potencias</h3>
+    <div class="mini"><span></span><span>Por unidad</span><span>Valor real</span></div>
+    <div class="rrow">
+      <div class="rname"><span class="m cP">P<sub>L</sub></span><span class="desc">Pérdidas en la línea</span></div>
+      <div class="rval cP" id="rPLp"></div><div class="rval cP" id="rPLr"></div>
+    </div>
+    <div class="rrow">
+      <div class="rname"><span class="m">P<sub>R</sub></span><span class="desc">Potencia entregada</span></div>
+      <div class="rval" id="rPSp"></div><div class="rval" id="rPSr"></div>
+    </div>
+  </section>
+
+  <section class="panel rcard gQ" aria-label="Reactivos del condensador">
+    <h3>Reactivos del condensador</h3>
+    <div class="mini"><span></span><span>Por unidad</span><span>Valor real</span></div>
+    <div class="rrow">
+      <div class="rname"><span class="m cQ">Q<sub>C,S</sub></span><span class="desc">Emisor</span></div>
+      <div class="rval cQ" id="rQSp"></div><div class="rval cQ" id="rQSr"></div>
+    </div>
+    <div class="rrow">
+      <div class="rname"><span class="m cQ">Q<sub>C,R</sub></span><span class="desc">Receptor</span></div>
+      <div class="rval cQ" id="rQRp"></div><div class="rval cQ" id="rQRr"></div>
+    </div>
+    <div class="rrow">
+      <div class="rname"><span class="m cQ">Q<sub>C</sub></span><span class="desc">Total inyectado</span></div>
+      <div class="rval cQ" id="rQTp"></div><div class="rval cQ" id="rQTr"></div>
+    </div>
+  </section>
+
+  <section class="panel rcard gX" aria-label="Índices">
+    <h3>Índices</h3>
+    <div class="rrow">
+      <div class="rname"><span class="m">RV</span><span class="desc">Regulación de voltaje</span></div>
+      <div class="rval span2" id="rReg"></div>
+    </div>
+    <div class="rrow">
+      <div class="rname"><span class="m">η</span><span class="desc">Eficiencia de transmisión</span></div>
+      <div class="rval span2" id="rEf"></div>
+    </div>
+  </section>
+
+  <section class="panel rcard abcd" aria-label="Constantes ABCD">
+    <h3>Constantes ABCD (p.u.)</h3>
+    <div class="rrow"><div class="rname"><span class="m">A</span> = <span class="m">D</span><span class="desc">ZY/2 + 1</span></div><div class="rval" id="rA"></div></div>
+    <div class="rrow"><div class="rname"><span class="m">B</span><span class="desc">Z</span></div><div class="rval" id="rB"></div></div>
+    <div class="rrow"><div class="rname"><span class="m">C</span><span class="desc">Y·(ZY/4 + 1)</span></div><div class="rval" id="rC"></div></div>
+  </section>
+
+</div>
+
+<footer>
+  Modelo π nominal — cuadripolo ABCD · Motor de cálculo validado numéricamente contra la implementación original en Python (Grainger &amp; Stevenson, cap. 6).
+</footer>
+
+<script>
+// ===== Aritmética compleja =====
+const C = (re, im = 0) => ({ re, im });
+const cadd=(a,b)=>C(a.re+b.re,a.im+b.im);
+const csub=(a,b)=>C(a.re-b.re,a.im-b.im);
+const cmul=(a,b)=>C(a.re*b.re-a.im*b.im,a.re*b.im+a.im*b.re);
+const cdiv=(a,b)=>{const d=b.re*b.re+b.im*b.im;return C((a.re*b.re+a.im*b.im)/d,(a.im*b.re-a.re*b.im)/d)};
+const cconj=a=>C(a.re,-a.im);
+const cabs=a=>Math.hypot(a.re,a.im);
+const cang=a=>Math.atan2(a.im,a.re)*180/Math.PI;
+const cscale=(a,k)=>C(a.re*k,a.im*k);
+
+// ===== Núcleo: circuito π nominal (misma lógica que el código Python original) =====
+function computePi(inp){
+  const VB=inp.VB_kV*1e3, SB=inp.SB_MVA*1e6;
+  const ZB=(VB*VB)/SB, IB=SB/(Math.sqrt(3)*VB);
+  const Zr=C(inp.R_ohm,inp.X_ohm), Br=C(0,inp.B_uS*1e-6);
+  const Z=cscale(Zr,1/ZB), Y=cscale(Br,ZB);
+  const VR=C(inp.VR_kV*1e3/VB,0);
+  const sinFi=Math.sqrt(Math.max(0,1-inp.fp*inp.fp));
+  const q=inp.tipo==='cap'?-sinFi:sinFi;
+  const SC=cscale(C(inp.fp,q),inp.S_MVA*1e6/SB);
+  const IR=cconj(cdiv(SC,VR));
+  const uno=C(1,0), ZY=cmul(Z,Y);
+  const A=cadd(cscale(ZY,0.5),uno), B=Z, Cc=cmul(Y,cadd(cscale(ZY,0.25),uno)), D=A;
+  const VS=cadd(cmul(A,VR),cmul(B,IR));
+  const IS=cadd(cmul(Cc,VR),cmul(D,IR));
+  const I2=cdiv(csub(VS,VR),B);
+  const DV=csub(VS,VR);
+  const PL_pu=cabs(I2)**2*Z.re;
+  const Bpu=Y.im;
+  const QC_R_pu=cabs(VR)**2*(Bpu/2), QC_S_pu=cabs(VS)**2*(Bpu/2);
+  const PSAL_pu=SC.re;
+  const den=PSAL_pu+PL_pu;                                   // P entregada + pérdidas
+  const efic=den>1e-15?(PSAL_pu/den)*100:NaN;                // 0/0 (vacío sin R) → '—'
+  const reg=cabs(A)>1e-12?((cabs(VS)/cabs(A)-cabs(VR))/cabs(VR))*100:NaN; // |A|≈0 → '—'
+  return {ZB,IB,VB,SB,Zr,A,B,Cc,VR,VS,IR,IS,I2,DV,PL_pu,PSAL_pu,QC_R_pu,QC_S_pu,efic,reg};
+}
+
+// ===== Utilidades de formato =====
+const $=id=>document.getElementById(id);
+const num=id=>{const v=parseFloat($(id).value);return Number.isFinite(v)?v:NaN};
+const f=(x,d)=>Number.isFinite(x)?x.toLocaleString('es-VE',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
+const pol=(c,d)=>`${f(cabs(c),d)} ∠ ${f(cang(c),2)}°`;                 // por unidad
+const polU=(c,d,k,u)=>`${f(cabs(c)*k,d)} ∠ ${f(cang(c),2)}° ${u}`;     // real: unidad después del ángulo
+const pct=(x,d)=>Number.isFinite(x)?`${f(x,d)} %`:'—';
+
+const DEFAULTS={VB:'442',SB:'244',VR:'442',Sc:'244',fp:'0.8',tipo:'ind',
+                modo:'total',Len:'100',R:'4.92',X:'27.88',shTipo:'B',Sh:'390.32'};
+
+// ===== Conversión por longitud → totales =====
+function lineTotals(){
+  const modo=$('modo').value, sh=$('shTipo').value;
+  const R=num('R'), X=num('X'), Sh=num('Sh'), L=num('Len');
+  let R_t, X_t, B_uS, err=null;
+  if(modo==='total'){
+    R_t=R; X_t=X;
+    if(sh==='B'){ B_uS=Sh; }
+    else if(Sh>0){ B_uS=1e6/Sh; }                  // X_C total en Ω → B = 1/X_C
+    else { B_uS=NaN; err='X_C debe ser mayor que cero. Para una línea sin shunt usa el modo Susceptancia con B = 0 µS.'; }
+  }else{
+    if(!(L>0)) err='La longitud debe ser mayor que cero.';
+    R_t=R*L; X_t=X*L;
+    if(sh==='B'){ B_uS=Sh*L; }                     // µS/long × L
+    else if(Sh>0){ B_uS=L/Sh; }                    // X_C en MΩ·long → B(µS) = L / X_C
+    else { B_uS=NaN; if(!err) err='X_C debe ser mayor que cero. Para una línea sin shunt usa el modo Susceptancia con B = 0 µS.'; }
+  }
+  return {R_t,X_t,B_uS,err};
+}
+
+// ===== Etiquetas dinámicas de unidades =====
+function refreshUnits(){
+  const modo=$('modo').value, sh=$('shTipo').value;
+  const per=modo!=='total', u=modo==='mi'?'mi':'km';
+  $('wrapLen').style.visibility=per?'visible':'hidden';
+  $('uLen').textContent=u;
+  $('uR').textContent=per?`Ω/${u}`:'Ω';
+  $('uX').textContent=per?`Ω/${u}`:'Ω';
+  if(sh==='B'){
+    $('lblSh').innerHTML=`<span class="m">B</span> ${per?'Susceptancia':'Susceptancia total'}`;
+    $('uSh').textContent=per?`µS/${u}`:'µS';
+  }else{
+    $('lblSh').innerHTML=`<span class="m">X<sub>C</sub></span> ${per?'React. capacitiva':'React. capacitiva total'}`;
+    $('uSh').textContent=per?`MΩ·${u}`:'Ω';
+  }
+}
+
+// ===== Render =====
+function update(){
+  refreshUnits();
+  const w=$('warn'); w.classList.remove('show'); w.textContent='';
+  const n=$('note'); n.classList.remove('show'); n.textContent='';
+  const {R_t,X_t,B_uS,err}=lineTotals();
+  const inp={VB_kV:num('VB'),SB_MVA:num('SB'),VR_kV:num('VR'),S_MVA:num('Sc'),
+             fp:num('fp'),tipo:$('tipo').value,R_ohm:R_t,X_ohm:X_t,B_uS:B_uS};
+
+  let msg=err;
+  if(!msg && [inp.VB_kV,inp.SB_MVA,inp.VR_kV,inp.S_MVA,inp.fp,R_t,X_t,B_uS].some(v=>!Number.isFinite(v)))
+    msg='Hay campos vacíos o no numéricos.';
+  if(!msg && (inp.VB_kV<=0||inp.SB_MVA<=0||inp.VR_kV<=0)) msg='V_B, S_B y V_R deben ser positivos.';
+  if(!msg && inp.S_MVA<0) msg='La carga |S| no puede ser negativa (es una magnitud). Usa fp y el tipo de carga para fijar el ángulo.';
+  if(!msg && R_t<0) msg='R no puede ser negativa.';
+  if(!msg && (inp.fp<0||inp.fp>1)) msg='El factor de potencia debe estar entre 0 y 1.';
+  if(!msg && Math.hypot(R_t,X_t)<1e-12) msg='La impedancia serie no puede ser cero.';
+  if(msg){ w.textContent=msg; w.classList.add('show'); return; }
+  if(X_t<0){ n.textContent='X < 0: se interpreta como línea con compensación serie capacitiva.'; n.classList.add('show'); }
+  if(B_uS<0){ n.textContent=(n.textContent?n.textContent+' · ':'')+'B < 0: se interpreta como reactor shunt (absorbe reactivos; Q_C aparecerá negativo).'; n.classList.add('show'); }
+
+  const r=computePi(inp);
+  const kV=r.VB/1e3, kA=r.IB/1e3, MVA=r.SB/1e6;
+
+  // Derivados de entrada (notación matemática)
+  $('dBases').innerHTML=`<span class="m">Z<sub>B</sub></span> = <span class="num">${f(r.ZB,2)} Ω</span>&nbsp;&nbsp;·&nbsp;&nbsp;<span class="m">I<sub>B</sub></span> = <span class="num">${f(r.IB,2)} A</span>`;
+  $('dLinea').innerHTML=`<span class="m">Z<sub>tot</sub></span> = <span class="num">${f(R_t,4)} + j${f(X_t,4)} Ω</span>&nbsp;&nbsp;·&nbsp;&nbsp;<span class="m">B<sub>tot</sub></span> = <span class="num">${f(B_uS,2)} µS</span>`;
+
+  // Diagrama
+  $('dVS1').textContent=`${pol(r.VS,4)} pu`;
+  $('dVS2').textContent=polU(r.VS,2,kV,'kV');
+  $('dVR1').textContent=`${pol(r.VR,4)} pu`;
+  $('dVR2').textContent=polU(r.VR,2,kV,'kV');
+  $('dIS2').textContent=polU(r.IS,3,kA,'kA');
+  $('dI22').textContent=polU(r.I2,3,kA,'kA');
+  $('dIR2').textContent=polU(r.IR,3,kA,'kA');
+  $('dZ2').textContent=`${f(R_t,2)} + j${f(X_t,2)} Ω`;
+  $('dB2s').textContent=`j${f(B_uS/2,2)} µS`;
+  $('dB2r').textContent=`j${f(B_uS/2,2)} µS`;
+  $('dQCs').textContent=` = ${f(r.QC_S_pu*MVA,2)} Mvar`;
+  $('dQCr').textContent=` = ${f(r.QC_R_pu*MVA,2)} Mvar`;
+  $('dPL').textContent=` = ${f(r.PL_pu*MVA,3)} MW`;
+  $('dLoad1').textContent=`${f(inp.S_MVA,1)} MVA`;
+  $('dLoad2').textContent=`fp ${f(inp.fp,2)} ${inp.tipo==='ind'?'(atraso)':'(adelanto)'}`;
+  $('dRegV').textContent=` = ${pct(r.reg,2)}  ·  `;
+  $('dEfV').textContent=` = ${pct(r.efic,2)}`;
+
+  // Resultados
+  $('rVSp').textContent=pol(r.VS,4);
+  $('rVSr').textContent=polU(r.VS,2,kV,'kV');
+  $('rVRp').textContent=pol(r.VR,4);
+  $('rVRr').textContent=polU(r.VR,2,kV,'kV');
+  $('rDVp').textContent=pol(r.DV,4);
+  $('rDVr').textContent=polU(r.DV,2,kV,'kV');
+  $('rISp').textContent=pol(r.IS,4);
+  $('rISr').textContent=polU(r.IS,3,kA,'kA');
+  $('rI2p').textContent=pol(r.I2,4);
+  $('rI2r').textContent=polU(r.I2,3,kA,'kA');
+  $('rIRp').textContent=pol(r.IR,4);
+  $('rIRr').textContent=polU(r.IR,3,kA,'kA');
+  $('rPLp').textContent=f(r.PL_pu,6);
+  $('rPLr').textContent=`${f(r.PL_pu*MVA,3)} MW`;
+  $('rPSp').textContent=f(r.PSAL_pu,4);
+  $('rPSr').textContent=`${f(r.PSAL_pu*MVA,2)} MW`;
+  $('rQSp').textContent=f(r.QC_S_pu,4);
+  $('rQSr').textContent=`${f(r.QC_S_pu*MVA,2)} Mvar`;
+  $('rQRp').textContent=f(r.QC_R_pu,4);
+  $('rQRr').textContent=`${f(r.QC_R_pu*MVA,2)} Mvar`;
+  $('rQTp').textContent=f(r.QC_R_pu+r.QC_S_pu,4);
+  $('rQTr').textContent=`${f((r.QC_R_pu+r.QC_S_pu)*MVA,2)} Mvar`;
+  $('rReg').textContent=pct(r.reg,2);
+  $('rEf').textContent=pct(r.efic,2);
+  $('rA').textContent=pol(r.A,4);
+  $('rB').textContent=pol(r.B,4);
+  $('rC').textContent=pol(r.Cc,4);
+}
+
+// ===== Eventos =====
+document.querySelectorAll('input,select').forEach(el=>{
+  el.addEventListener('input',update);
+  el.addEventListener('change',update);
+});
+$('reset').addEventListener('click',()=>{
+  for(const [id,v] of Object.entries(DEFAULTS)) $(id).value=v;
+  update();
+});
+$('theme').addEventListener('click',()=>{
+  const dark=document.body.dataset.theme==='dark';
+  document.body.dataset.theme=dark?'light':'dark';
+  $('theme').textContent=dark?'Modo oscuro':'Modo claro';
+});
+update();
+</script>
+</body>
+</html>
