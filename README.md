@@ -110,7 +110,7 @@ Construido íntegramente con **HTML, CSS y JavaScript puro**, sin frameworks ni 
 Desarrollado por **Jesús Peña** — UNEFA Lara.
 Con apoyo de **Claude (Anthropic)** para el diseño de la interfaz.
 
-¿Encontraste un error o tienes una idea de mejora? ¡Los issues y pull requests son bienvenidos!
+¿Encontraste un error o tienes una idea de mejora? ¡Los recomendaciones y sugerencias son bienvenidos!
 
 ---
 
