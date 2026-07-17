@@ -206,8 +206,20 @@
           <option value="mi">Por longitud · millas</option>
         </select></span>
       </label>
-      <label class="fld" id="wrapLen" style="visibility:hidden"><b><span class="m">ℓ</span> Longitud</b>
+      <label class="fld" id="wrapLen"><b><span class="m">ℓ</span> Longitud</b>
         <span class="in"><input id="Len" type="number" step="any" value="100"><span class="u" id="uLen">km</span></span>
+      </label>
+    </div>
+    <div class="row">
+      <label class="fld"><b>Modelo de línea</b>
+        <span class="in"><select id="modeloLinea">
+          <option value="auto" selected>Automático (&gt;240 km → largo)</option>
+          <option value="nominal">Forzar π nominal (concentrado)</option>
+          <option value="largo">Forzar línea larga (distribuido · hiperbólico)</option>
+        </select></span>
+      </label>
+      <label class="fld"><b>Clasificación</b>
+        <span class="in"><span style="padding:8px 10px;font-family:var(--mono);font-size:12.5px;color:var(--muted)" id="dClasif"></span></span>
       </label>
     </div>
     <div class="row">
@@ -268,6 +280,7 @@
   <!-- Impedancia serie Z (centro x=535) -->
   <line x1="345" y1="210" x2="385" y2="210" class="wire"/>
   <rect x="385" y="180" width="300" height="60" rx="6" class="comp"/>
+  <text id="dModeloTag" x="535" y="174" text-anchor="middle" class="tag" font-size="10.5"></text>
   <text x="535" y="204" text-anchor="middle" class="tag"><tspan class="mv" font-size="14">Z</tspan><tspan> = </tspan><tspan class="mv" font-size="14">R</tspan><tspan> + j</tspan><tspan class="mv" font-size="14">X</tspan></text>
   <text id="dZ2" x="535" y="226" text-anchor="middle" class="tagB" font-size="13.5"></text>
   <!-- I_Z: flecha, símbolo y valor, los tres centrados en x=535 -->
@@ -498,12 +511,30 @@ const cabs=a=>Math.hypot(a.re,a.im);
 const cang=a=>Math.atan2(a.im,a.re)*180/Math.PI;
 const cscale=(a,k)=>C(a.re*k,a.im*k);
 
-// ===== Núcleo: circuito π nominal (misma lógica que el código Python original) =====
-function computePi(inp){
+// ===== Funciones hiperbólicas complejas (modelo de línea larga) =====
+const csinh=a=>C(Math.sinh(a.re)*Math.cos(a.im), Math.cosh(a.re)*Math.sin(a.im));
+const ccosh=a=>C(Math.cosh(a.re)*Math.cos(a.im), Math.sinh(a.re)*Math.sin(a.im));
+const ctanh=a=>cdiv(csinh(a),ccosh(a));
+const csqrt=a=>{const r=cabs(a);const re=Math.sqrt(Math.max(0,(r+a.re)/2));let im=Math.sqrt(Math.max(0,(r-a.re)/2));if(a.im<0)im=-im;return C(re,im)};
+// sinh(x)/x y tanh(x/2)/(x/2): factores de corrección, con límite seguro en x→0
+const sinhOverX=x=>cabs(x)<1e-6?C(1,0):cdiv(csinh(x),x);
+const tanhHalfOverHalf=x=>{const h=cscale(x,0.5);return cabs(h)<1e-6?C(1,0):cdiv(ctanh(h),h)};
+
+// ===== Núcleo: circuito π nominal / equivalente (misma lógica que el código Python original,
+//       con corrección hiperbólica opcional para líneas largas: Z' = Z·sinh(γℓ)/γℓ,
+//       Y' = Y·tanh(γℓ/2)/(γℓ/2), donde γℓ = √(ZY) usando los totales concentrados) =====
+function computePi(inp,isLong){
   const VB=inp.VB_kV*1e3, SB=inp.SB_MVA*1e6;
   const ZB=(VB*VB)/SB, IB=SB/(Math.sqrt(3)*VB);
   const Zr=C(inp.R_ohm,inp.X_ohm), Br=C(0,inp.B_uS*1e-6);
-  const Z=cscale(Zr,1/ZB), Y=cscale(Br,ZB);
+  const Znom=cscale(Zr,1/ZB), Ynom=cscale(Br,ZB);
+  let Z=Znom, Y=Ynom, gammaL=null, isLongApplied=false;
+  if(isLong){
+    const x=csqrt(cmul(Znom,Ynom));
+    Z=cmul(Znom,sinhOverX(x));
+    Y=cmul(Ynom,tanhHalfOverHalf(x));
+    gammaL=x; isLongApplied=true;
+  }
   const VR=C(inp.VR_kV*1e3/VB,0);
   const sinFi=Math.sqrt(Math.max(0,1-inp.fp*inp.fp));
   const q=inp.tipo==='cap'?-sinFi:sinFi;
@@ -522,7 +553,7 @@ function computePi(inp){
   const den=PSAL_pu+PL_pu;                                   // P entregada + pérdidas
   const efic=den>1e-15?(PSAL_pu/den)*100:NaN;                // 0/0 (vacío sin R) → '—'
   const reg=cabs(A)>1e-12?((cabs(VS)/cabs(A)-cabs(VR))/cabs(VR))*100:NaN; // |A|≈0 → '—'
-  return {ZB,IB,VB,SB,Zr,A,B,Cc,VR,VS,IR,IS,I2,DV,PL_pu,PSAL_pu,QC_R_pu,QC_S_pu,efic,reg};
+  return {ZB,IB,VB,SB,Zr,Znom,Ynom,Z,Y,gammaL,isLongApplied,A,B,Cc,VR,VS,IR,IS,I2,DV,PL_pu,PSAL_pu,QC_R_pu,QC_S_pu,efic,reg};
 }
 
 // ===== Utilidades de formato =====
@@ -534,7 +565,14 @@ const polU=(c,d,k,u)=>`${f(cabs(c)*k,d)} ∠ ${f(cang(c),2)}° ${u}`;     // rea
 const pct=(x,d)=>Number.isFinite(x)?`${f(x,d)} %`:'—';
 
 const DEFAULTS={VB:'442',SB:'244',VR:'442',Sc:'244',fp:'0.8',tipo:'ind',
-                modo:'total',Len:'100',R:'4.92',X:'27.88',shTipo:'B',Sh:'390.32'};
+                modo:'total',Len:'100',modeloLinea:'auto',R:'4.92',X:'27.88',shTipo:'B',Sh:'390.32'};
+
+// ===== Longitud física de la línea en km (para clasificar y activar el modelo largo) =====
+function getLengthKm(){
+  const modo=$('modo').value, L=num('Len');
+  if(!Number.isFinite(L) || L<=0) return NaN;
+  return modo==='mi' ? L*1.609344 : L;
+}
 
 // ===== Conversión por longitud → totales =====
 function lineTotals(){
@@ -560,7 +598,9 @@ function lineTotals(){
 function refreshUnits(){
   const modo=$('modo').value, sh=$('shTipo').value;
   const per=modo!=='total', u=modo==='mi'?'mi':'km';
-  $('wrapLen').style.visibility=per?'visible':'hidden';
+  $('wrapLen').querySelector('b').innerHTML=per
+    ?`<span class="m">ℓ</span> Longitud`
+    :`<span class="m">ℓ</span> Longitud total <span style="font-weight:400">(clasificación)</span>`;
   $('uLen').textContent=u;
   $('uR').textContent=per?`Ω/${u}`:'Ω';
   $('uX').textContent=per?`Ω/${u}`:'Ω';
@@ -594,12 +634,29 @@ function update(){
   if(X_t<0){ n.textContent='X < 0: se interpreta como línea con compensación serie capacitiva.'; n.classList.add('show'); }
   if(B_uS<0){ n.textContent=(n.textContent?n.textContent+' · ':'')+'B < 0: se interpreta como reactor shunt (absorbe reactivos; Q_C aparecerá negativo).'; n.classList.add('show'); }
 
-  const r=computePi(inp);
+  const lengthKm=getLengthKm(), modeloSel=$('modeloLinea').value;
+  const isLong=modeloSel==='largo' || (modeloSel==='auto' && Number.isFinite(lengthKm) && lengthKm>240);
+
+  const r=computePi(inp,isLong);
   const kV=r.VB/1e3, kA=r.IB/1e3, MVA=r.SB/1e6;
+
+  // Clasificación de la línea y modelo aplicado
+  const claseLen=!Number.isFinite(lengthKm)?'longitud no especif.'
+    :lengthKm<80?`${f(lengthKm,0)} km · corta`
+    :lengthKm<=240?`${f(lengthKm,0)} km · media`
+    :`${f(lengthKm,0)} km · larga`;
+  $('dClasif').textContent=`${claseLen} → ${r.isLongApplied?'distribuido':'nominal'}`;
+  if(r.isLongApplied){
+    n.textContent=(n.textContent?n.textContent+' · ':'')+`Modelo de línea larga activo (parámetros distribuidos, ecuaciones hiperbólicas): γℓ = ${pol(r.gammaL,4)}.`;
+    n.classList.add('show');
+  }
 
   // Derivados de entrada (notación matemática)
   $('dBases').innerHTML=`<span class="m">Z<sub>B</sub></span> = <span class="num">${f(r.ZB,2)} Ω</span>&nbsp;&nbsp;·&nbsp;&nbsp;<span class="m">I<sub>B</sub></span> = <span class="num">${f(r.IB,2)} A</span>`;
   $('dLinea').innerHTML=`<span class="m">Z<sub>tot</sub></span> = <span class="num">${f(R_t,4)} + j${f(X_t,4)} Ω</span>&nbsp;&nbsp;·&nbsp;&nbsp;<span class="m">B<sub>tot</sub></span> = <span class="num">${f(B_uS,2)} µS</span>`;
+
+  // Impedancia y susceptancia efectivamente usadas en el cálculo (equivalentes si el modelo largo está activo)
+  const Zohm=cscale(r.Z,r.ZB), B_uS_eff=(r.Y.im/r.ZB)*1e6;
 
   // Diagrama
   $('dVS1').textContent=`${pol(r.VS,4)} pu`;
@@ -609,9 +666,10 @@ function update(){
   $('dIS2').textContent=polU(r.IS,3,kA,'kA');
   $('dI22').textContent=polU(r.I2,3,kA,'kA');
   $('dIR2').textContent=polU(r.IR,3,kA,'kA');
-  $('dZ2').textContent=`${f(R_t,2)} + j${f(X_t,2)} Ω`;
-  $('dB2s').textContent=`j${f(B_uS/2,2)} µS`;
-  $('dB2r').textContent=`j${f(B_uS/2,2)} µS`;
+  $('dModeloTag').textContent=r.isLongApplied?'Equivalente · línea larga':'';
+  $('dZ2').textContent=`${f(Zohm.re,2)} + j${f(Zohm.im,2)} Ω`;
+  $('dB2s').textContent=`j${f(B_uS_eff/2,2)} µS`;
+  $('dB2r').textContent=`j${f(B_uS_eff/2,2)} µS`;
   $('dQCs').textContent=` = ${f(r.QC_S_pu*MVA,2)} Mvar`;
   $('dQCr').textContent=` = ${f(r.QC_R_pu*MVA,2)} Mvar`;
   $('dPL').textContent=` = ${f(r.PL_pu*MVA,3)} MW`;
